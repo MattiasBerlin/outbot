@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	prefix = "!"
+	prefix  = "!"
+	guildID = "382256124604448768" // TODO: Remove
 )
 
 func main() {
@@ -33,7 +34,7 @@ func main() {
 		fmt.Println("Failed to connect to database:", err)
 	}
 
-	router := router.New(prefix, session, db)
+	router := router.New(prefix, guildID, session, db)
 
 	session.AddHandler(router.OnMessageSent)
 

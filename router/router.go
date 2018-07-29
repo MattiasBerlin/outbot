@@ -9,16 +9,20 @@ import (
 	"strings"
 )
 
+// Router for commands.
 type Router struct {
 	commands map[string]*commands.Command
 	prefix   string
+	guildID  string
 	db       *sql.DB
 }
 
-func New(prefix string, s *discordgo.Session, db *sql.DB) *Router {
+// New router. Adds and initializes the commands.
+func New(prefix string, guildID string, s *discordgo.Session, db *sql.DB) *Router {
 	r := &Router{
 		commands: make(map[string]*commands.Command),
 		prefix:   prefix,
+		guildID:  guildID,
 		db:       db,
 	}
 
@@ -26,9 +30,8 @@ func New(prefix string, s *discordgo.Session, db *sql.DB) *Router {
 
 	// Init commands
 	for _, cmd := range cmds {
-		fmt.Println("asjidhasjdh", cmd.CallPhrase)
 		if cmd.Init != nil {
-			fmt.Println("Init", cmd.CallPhrase)
+			fmt.Println("Initializing handler:", cmd.CallPhrase)
 			cmd.Init(s, db)
 		}
 	}
@@ -37,10 +40,12 @@ func New(prefix string, s *discordgo.Session, db *sql.DB) *Router {
 	return r
 }
 
+// AddCommand to the router.
 func (r *Router) AddCommand(cmd commands.Command) {
 	r.commands[cmd.CallPhrase] = &cmd
 }
 
+// AddCommands to the router.
 func (r *Router) AddCommands(cmds []commands.Command) {
 	for _, cmd := range cmds {
 		r.AddCommand(cmd)
@@ -61,6 +66,7 @@ func (r *Router) getAllCommands() []commands.Command {
 	return cmds
 }
 
+// OnMessageSent gets called when a message is sent.
 func (r *Router) OnMessageSent(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.Bot || !strings.HasPrefix(m.Content, r.prefix) {
 		return
@@ -70,11 +76,31 @@ func (r *Router) OnMessageSent(s *discordgo.Session, m *discordgo.MessageCreate)
 	msg := strings.Split(m.Content, " ")[0]
 	// Strip prefix
 	msg = msg[len(r.prefix):]
-	//fmt.Println(msg)
 	command := r.getCommand(msg)
-	// TODO: Check permission!
-	if command != nil {
+
+	if command == nil {
+		return
+	}
+	if command.Handler == nil {
+		fmt.Println(command.CallPhrase, "does not have a handler")
+		return
+	}
+
+	user, err := s.GuildMember(r.guildID, m.Author.ID)
+	if err != nil {
+		fmt.Println("Failed to obtain guild member:", err.Error())
+		return
+	}
+	if user == nil {
+		// Not sent by a user?
+		// Probably a join message or something like that
+		return
+	}
+
+	if command.Permission.Authorized(*user) {
 		command.Handler(s, m, r.db, r.getAllCommands())
+	} else {
+		fmt.Println(m.Author.Username, "tried to use", command.CallPhrase, "without the required authorization")
 	}
 }
 
@@ -99,5 +125,9 @@ func (r *Router) getCommands() []commands.Command {
 			Handler:         handlers.HandleEvent,
 			Init:            handlers.InitEvent,
 		},
+		handlers.OptInCommand(),
+		handlers.OptOutCommand(),
+		handlers.ListParticipantsCommand(),
+		handlers.ClearParticipantsCommand(),
 	}
 }
