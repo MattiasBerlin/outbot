@@ -8,7 +8,7 @@ In the future there might be precompiled packages available to download but curr
 
 ### Prerequisites
 
-* [Go](https://golang.org/dl/)
+* [Go](https://golang.org/dl/) 1.10+
 * The dependencies (use `go get <dep>` for all of them - these will be added to a vendor folder later)
 
 ### Installation
