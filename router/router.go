@@ -6,6 +6,7 @@ import (
 	"github.com/MattiasBerlin/outbot/commands"
 	"github.com/MattiasBerlin/outbot/handlers"
 	"github.com/bwmarrin/discordgo"
+	"sort"
 	"strings"
 )
 
@@ -57,10 +58,22 @@ func (r *Router) getCommand(name string) *commands.Command {
 }
 
 func (r *Router) getAllCommands() []commands.Command {
-	cmds := make([]commands.Command, 0, len(r.commands))
+	cmds := make([]commands.Command, len(r.commands))
+	keys := make([]string, len(r.commands))
 
-	for _, cmd := range r.commands {
-		cmds = append(cmds, *cmd)
+	// Go randomizes the element order if you use range on the map directly,
+	// so the keys have to be sorted to get them in a consistent order
+	i := 0
+	for key := range r.commands {
+		keys[i] = key
+		i++
+	}
+	sort.Strings(keys)
+
+	i = 0
+	for _, key := range keys {
+		cmds[i] = *r.commands[key]
+		i++
 	}
 
 	return cmds
@@ -98,7 +111,7 @@ func (r *Router) OnMessageSent(s *discordgo.Session, m *discordgo.MessageCreate)
 	}
 
 	if command.Permission.Authorized(*user) {
-		command.Handler(s, m, r.db, r.getAllCommands())
+		command.Handler(s, m, r.db, r.getAllCommands()) // TODO: There's no need to get all the commands every call, just do it once and save it
 	} else {
 		fmt.Println(m.Author.Username, "tried to use", command.CallPhrase, "without the required authorization")
 	}
@@ -106,25 +119,9 @@ func (r *Router) OnMessageSent(s *discordgo.Session, m *discordgo.MessageCreate)
 
 func (r *Router) getCommands() []commands.Command {
 	return []commands.Command{
-		{
-			CallPhrase:      "help",
-			Permission:      commands.All,
-			HelpDescription: "Get descriptions of the available commands",
-			Handler:         handlers.HandleHelp,
-		},
-		{
-			CallPhrase:      "ping",
-			Permission:      commands.All,
-			HelpDescription: "Check if OutBot is online",
-			Handler:         handlers.HandlePing,
-		},
-		{
-			CallPhrase:      "event",
-			Permission:      commands.Members,
-			HelpDescription: "Set reminders, useful for WS",
-			Handler:         handlers.HandleEvent,
-			Init:            handlers.InitEvent,
-		},
+		handlers.HelpCommand(),
+		handlers.PingCommand(),
+		handlers.EventCommand(),
 		handlers.OptInCommand(),
 		handlers.OptOutCommand(),
 		handlers.ListParticipantsCommand(),

@@ -9,6 +9,11 @@ import (
 	"strings"
 )
 
+const (
+	successColor = 0x00ff00
+	failColor    = 0xff0000
+)
+
 type participant struct {
 	name          string
 	participating bool
@@ -21,6 +26,12 @@ func OptInCommand() commands.Command {
 		Permission:      commands.Members,
 		HelpDescription: "Opt in for the next WS",
 		Handler:         HandleOptIn,
+		Help: commands.Help{
+			Summary:             "Opt in for the next WS",
+			DetailedDescription: "Out in for the next White Star match.",
+			Syntax:              "optin",
+			Example:             "optin",
+		},
 	}
 }
 
@@ -31,6 +42,12 @@ func OptOutCommand() commands.Command {
 		Permission:      commands.Members,
 		HelpDescription: "Opt out for the next WS",
 		Handler:         HandleOptOut,
+		Help: commands.Help{
+			Summary:             "Opt out of the next WS",
+			DetailedDescription: "Out out of the next White Star match.",
+			Syntax:              "optout",
+			Example:             "optout",
+		},
 	}
 }
 
@@ -41,6 +58,12 @@ func ListParticipantsCommand() commands.Command {
 		Permission:      commands.Members,
 		HelpDescription: "List members interest in joining the next WS",
 		Handler:         HandleListParticipants,
+		Help: commands.Help{
+			Summary:             "List members interest in joining the next WS",
+			DetailedDescription: "List every member that has opted in respectively out from the next White Star.",
+			Syntax:              "list",
+			Example:             "list",
+		},
 	}
 }
 
@@ -51,6 +74,12 @@ func ClearParticipantsCommand() commands.Command {
 		Permission:      commands.Officers,
 		HelpDescription: "Clear the participation list",
 		Handler:         HandleClearParticipants,
+		Help: commands.Help{
+			Summary:             "Clear the participation list",
+			DetailedDescription: "Clear the participation list.",
+			Syntax:              "clear",
+			Example:             "clear",
+		},
 	}
 }
 
@@ -76,7 +105,11 @@ func HandleClearParticipants(s *discordgo.Session, m *discordgo.MessageCreate, d
 		return
 	}
 
-	_, err = s.ChannelMessageSend(m.ChannelID, "Participation list cleared!")
+	msg := discordgo.MessageEmbed{
+		Color:       successColor,
+		Description: "Participation list cleared!",
+	}
+	_, err = s.ChannelMessageSendEmbed(m.ChannelID, &msg)
 	if err != nil {
 		fmt.Println("Failed to send message:", err.Error())
 		return
@@ -91,7 +124,11 @@ func HandleListParticipants(s *discordgo.Session, m *discordgo.MessageCreate, db
 		status = "[Failed to get participation status]"
 	}
 
-	_, err = s.ChannelMessageSend(m.ChannelID, status)
+	msg := discordgo.MessageEmbed{
+		Color:       successColor,
+		Description: status,
+	}
+	_, err = s.ChannelMessageSendEmbed(m.ChannelID, &msg)
 	if err != nil {
 		fmt.Println("Failed to send message:", err.Error())
 		return
@@ -120,7 +157,11 @@ func setParticipation(participating bool, updateMessage string, s *discordgo.Ses
 		status = "[Failed to get participation status]"
 	}
 
-	_, err = s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%v\n\n%v", updateMessage, status))
+	msg := discordgo.MessageEmbed{
+		Color:       successColor,
+		Description: fmt.Sprintf("%v\n\n%v", updateMessage, status),
+	}
+	_, err = s.ChannelMessageSendEmbed(m.ChannelID, &msg)
 	if err != nil {
 		fmt.Println("Failed to send message:", err.Error())
 		return

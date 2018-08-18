@@ -12,12 +12,30 @@ import (
 
 const (
 	botEventChannelID = "466576270285602823"
+
+	eventExpiredColor = 0x4286f4
 )
 
 type event struct {
 	description string
 	time        time.Time
 	expired     bool
+}
+
+// EventCommand for reminders.
+func EventCommand() commands.Command {
+	return commands.Command{
+		CallPhrase:      "event",
+		Permission:      commands.Members,
+		HelpDescription: "Set reminders, useful for WS",
+		Handler:         HandleEvent,
+		Init:            InitEvent,
+		Help: commands.Help{
+			Summary: "Set reminders, useful for WS",
+			DetailedDescription: "Set reminders for events that will occur after a specific duration.\n" +
+				"Available subcommands are: `add`, `upcoming` and `history` (*I'll add functionality to get help on subcommands too soon*)",
+		},
+	}
 }
 
 func (e event) timeDBFormat() string {
@@ -60,7 +78,12 @@ func HandleEvent(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, c
 	switch split[1] {
 	case "add":
 		if len(split) < 4 {
-			_, err := s.ChannelMessageSend(m.ChannelID, "Too few arguments for add event command, check `!help event`")
+			msg := discordgo.MessageEmbed{
+				Title:       "Incorrect syntax",
+				Color:       failColor,
+				Description: "Too few arguments for add event command, check `!help event`",
+			}
+			_, err := s.ChannelMessageSendEmbed(m.ChannelID, &msg)
 			if err != nil {
 				fmt.Println("Failed to send message:", err)
 			}
@@ -84,12 +107,18 @@ func HandleEvent(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, c
 			return
 		}
 
-		msg := "**Upcoming events:**\n"
+		// content := "**Upcoming events:**\n"
+		var content string
 		for _, e := range upcoming {
-			msg += fmt.Sprintf("* In %v: %v\n", e.time.Sub(time.Now()).Round(time.Second), e.description)
+			content += fmt.Sprintf("* In %v: %v\n", e.time.Sub(time.Now()).Round(time.Second), e.description)
 		}
 
-		_, err = s.ChannelMessageSend(m.ChannelID, msg)
+		msg := discordgo.MessageEmbed{
+			Title:       "Upcoming events",
+			Color:       infoColor,
+			Description: content,
+		}
+		_, err = s.ChannelMessageSendEmbed(m.ChannelID, &msg)
 		if err != nil {
 			fmt.Println("Failed to send message:", err.Error())
 			return
@@ -106,18 +135,28 @@ func HandleEvent(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, c
 			return
 		}
 
-		msg := "**Past events:**\n"
+		var content string
 		for _, e := range pastEvents {
-			msg += fmt.Sprintf("* %v ago: %v\n", e.time.Sub(time.Now()).Round(time.Second).String()[1:], e.description) // TODO: Pretty this
+			content += fmt.Sprintf("* %v ago: %v\n", e.time.Sub(time.Now()).Round(time.Second).String()[1:], e.description) // TODO: Pretty this
 		}
 
-		_, err = s.ChannelMessageSend(m.ChannelID, msg)
+		msg := discordgo.MessageEmbed{
+			Title:       "Past events",
+			Color:       infoColor,
+			Description: content,
+		}
+		_, err = s.ChannelMessageSendEmbed(m.ChannelID, &msg)
 		if err != nil {
 			fmt.Println("Failed to send message:", err.Error())
 			return
 		}
 	default:
-		_, err := s.ChannelMessageSend(m.ChannelID, "Unknown event command, check `!help event`")
+		msg := discordgo.MessageEmbed{
+			Title:       "Incorrect syntax",
+			Color:       failColor,
+			Description: "Unknown event command, check `!help event`",
+		}
+		_, err := s.ChannelMessageSendEmbed(m.ChannelID, &msg)
 		if err != nil {
 			fmt.Println("Failed to send message:", err.Error())
 			return
@@ -129,7 +168,12 @@ func HandleEvent(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, c
 func addEvent(s *discordgo.Session, m *discordgo.MessageCreate, splitMsg []string, db *sql.DB) error {
 	duration, err := time.ParseDuration(splitMsg[2])
 	if err != nil {
-		_, err = s.ChannelMessageSend(m.ChannelID, "Incorrect syntax for duration, check `!help event`")
+		msg := discordgo.MessageEmbed{
+			Title:       "Incorrect syntax",
+			Color:       failColor,
+			Description: "Incorrect syntax for duration, check `!help event`",
+		}
+		_, err = s.ChannelMessageSendEmbed(m.ChannelID, &msg)
 		return errors.Wrap(err, "failed to send message")
 	}
 
@@ -147,7 +191,12 @@ func addEvent(s *discordgo.Session, m *discordgo.MessageCreate, splitMsg []strin
 
 	startEventTimer(event, s, db)
 
-	_, err = s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Event added!\nIn %v: \"%v\"", duration.String(), event.description))
+	msg := discordgo.MessageEmbed{
+		Title:       "Event added!",
+		Color:       successColor,
+		Description: fmt.Sprintf("In %v: \"%v\"", duration.String(), event.description),
+	}
+	_, err = s.ChannelMessageSendEmbed(m.ChannelID, &msg)
 	if err != nil {
 		return errors.Wrap(err, "failed to send message")
 	}
@@ -170,7 +219,12 @@ func waitForEventTimerExpire(event event, c <-chan time.Time, s *discordgo.Sessi
 		fmt.Println("Failed to set event expired in db:", err.Error())
 	}
 
-	_, err = s.ChannelMessageSend(botEventChannelID, event.description) // TODO: remove hardcoded channel ID!
+	msg := discordgo.MessageEmbed{
+		Title:       "Event expired",
+		Color:       infoColor,
+		Description: event.description,
+	}
+	_, err = s.ChannelMessageSendEmbed(botEventChannelID, &msg)
 	if err != nil {
 		fmt.Println("Failed to send message:", err.Error())
 		return
