@@ -44,12 +44,17 @@ func (p Permission) Authorized(user discordgo.Member) bool {
 	return authorized
 }
 
-type Handler func(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []Command)
+// Handler of message sent events.
+type Handler func(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []Command)
 type Init func(s *discordgo.Session, db *sql.DB)
 
 type Command struct {
-	CallPhrase      string
-	Permission      Permission
+	CallPhrase string
+	// alternative callphrases TODO: always top-level?
+	Aliases    []string
+	Permission Permission
+	// TODO: doc
+	SubCommands     []Command
 	HelpDescription string
 	Handler         Handler
 	// Init is called before the handler. Put it as nil if there's no need.

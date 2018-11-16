@@ -30,17 +30,16 @@ func HelpCommand() commands.Command {
 }
 
 // HandleHelp handles the help command.
-func HandleHelp(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
-	msg := strings.Split(m.Content, " ")
-
-	if len(msg) == 1 {
+func HandleHelp(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
+	splitMsg := strings.Split(msg, " ")
+	if len(splitMsg) == 0 {
 		sendHelpMessage(s, m, cmds)
 		return
 	}
 
 	for _, cmd := range cmds {
-		if cmd.CallPhrase == msg[1] {
-			msg := discordgo.MessageEmbed{
+		if cmd.CallPhrase == splitMsg[0] {
+			response := discordgo.MessageEmbed{
 				Title: cmd.CallPhrase,
 				Color: infoColor,
 			}
@@ -68,9 +67,9 @@ func HandleHelp(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cm
 				}
 			}
 
-			msg.Description = content.String()
+			response.Description = content.String()
 
-			_, err := s.ChannelMessageSendEmbed(m.ChannelID, &msg)
+			_, err := s.ChannelMessageSendEmbed(m.ChannelID, &response)
 			if err != nil {
 				fmt.Println("Failed to send message:", err)
 				return

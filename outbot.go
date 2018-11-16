@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/MattiasBerlin/outbot/database"
-	"github.com/MattiasBerlin/outbot/router"
 	"github.com/bwmarrin/discordgo"
 	"github.com/pkg/errors"
 	"os"
@@ -34,7 +33,7 @@ func main() {
 		fmt.Println("Failed to connect to database:", err)
 	}
 
-	router := router.New(prefix, guildID, session, db)
+	router := NewRouter(prefix, guildID, session, db)
 
 	session.AddHandler(router.OnMessageSent)
 

@@ -1,4 +1,4 @@
-package router
+package main
 
 import (
 	"database/sql"
@@ -18,8 +18,8 @@ type Router struct {
 	db       *sql.DB
 }
 
-// New router. Adds and initializes the commands.
-func New(prefix string, guildID string, s *discordgo.Session, db *sql.DB) *Router {
+// NewRouter adds and initializes the commands.
+func NewRouter(prefix string, guildID string, s *discordgo.Session, db *sql.DB) *Router {
 	r := &Router{
 		commands: make(map[string]*commands.Command),
 		prefix:   prefix,
@@ -27,7 +27,7 @@ func New(prefix string, guildID string, s *discordgo.Session, db *sql.DB) *Route
 		db:       db,
 	}
 
-	cmds := r.getCommands()
+	cmds := getCommands()
 
 	// Init commands
 	for _, cmd := range cmds {
@@ -42,8 +42,27 @@ func New(prefix string, guildID string, s *discordgo.Session, db *sql.DB) *Route
 }
 
 // AddCommand to the router.
+// Aliases are also registered.
 func (r *Router) AddCommand(cmd commands.Command) {
 	r.commands[cmd.CallPhrase] = &cmd
+
+	// Add aliases
+	for _, alias := range cmd.Aliases {
+		// TODO: For now the prefix (super's callphrase or whatever) is ignored for aliases but
+		// it would be nice to be able to use it if wanted
+		r.commands[alias] = &cmd
+	}
+
+	r.addSubCommands(cmd)
+}
+
+func (r *Router) addSubCommands(cmd commands.Command) {
+	for _, sub := range cmd.SubCommands {
+		for _, alias := range sub.Aliases {
+			r.commands[alias] = &sub
+		}
+		r.addSubCommands(sub)
+	}
 }
 
 // AddCommands to the router.
@@ -53,8 +72,42 @@ func (r *Router) AddCommands(cmds []commands.Command) {
 	}
 }
 
-func (r *Router) getCommand(name string) *commands.Command {
-	return r.commands[name]
+// getCommand returns the command matching the message.
+// The remaining text (after the command) is also returned.
+func (r *Router) getCommand(msg string) (*commands.Command, string) {
+	split := strings.Split(msg, " ")
+
+	fmt.Println("Checking", split[0])
+	cmd := r.commands[split[0]]
+
+	// Check for subcommand matches if relevant
+	if cmd != nil && len(split) > 1 {
+		split = split[1:]
+		sub := r.getSubCommand(cmd, split) // TODO: Ugly, make this prettier..
+		for sub != nil {
+			cmd = sub
+			split = split[1:]
+			sub = r.getSubCommand(sub, split)
+		}
+	} else {
+		if len(split) > 1 {
+			split = split[1:]
+		} else {
+			split = []string{}
+		}
+	}
+
+	return cmd, strings.Join(split, " ")
+}
+
+func (r *Router) getSubCommand(cmd *commands.Command, trail []string) *commands.Command {
+	for _, sub := range cmd.SubCommands {
+		if sub.CallPhrase == trail[0] {
+			return &sub
+		}
+	}
+
+	return nil
 }
 
 func (r *Router) getAllCommands() []commands.Command {
@@ -79,19 +132,20 @@ func (r *Router) getAllCommands() []commands.Command {
 	return cmds
 }
 
-// OnMessageSent gets called when a message is sent.
+// OnMessageSent gets called when a message is sent and routes to the correct handler based on the message.
 func (r *Router) OnMessageSent(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.Bot || !strings.HasPrefix(m.Content, r.prefix) {
 		return
 	}
 
 	// Only get first word
-	msg := strings.Split(m.Content, " ")[0]
-	// Strip prefix
-	msg = msg[len(r.prefix):]
-	command := r.getCommand(msg)
+	//msg := strings.Split(m.Content, " ")[0]
 
+	// Strip prefix
+	msg := m.Content[len(r.prefix):]
+	command, msg := r.getCommand(msg)
 	if command == nil {
+		fmt.Println("Command not found")
 		return
 	}
 	if command.Handler == nil {
@@ -111,13 +165,13 @@ func (r *Router) OnMessageSent(s *discordgo.Session, m *discordgo.MessageCreate)
 	}
 
 	if command.Permission.Authorized(*user) {
-		command.Handler(s, m, r.db, r.getAllCommands()) // TODO: There's no need to get all the commands every call, just do it once and save it
+		command.Handler(msg, s, m, r.db, r.getAllCommands()) // TODO: There's no need to get all the commands every call, just do it once and save it
 	} else {
 		fmt.Println(m.Author.Username, "tried to use", command.CallPhrase, "without the required authorization")
 	}
 }
 
-func (r *Router) getCommands() []commands.Command {
+func getCommands() []commands.Command {
 	return []commands.Command{
 		handlers.HelpCommand(),
 		handlers.PingCommand(),

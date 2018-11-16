@@ -28,12 +28,31 @@ func EventCommand() commands.Command {
 		CallPhrase:      "event",
 		Permission:      commands.Members,
 		HelpDescription: "Set reminders, useful for WS",
-		Handler:         HandleEvent,
-		Init:            InitEvent,
+		SubCommands: []commands.Command{
+			EventAddCommand(),
+		},
+		Handler: HandleEvent,
+		Init:    InitEvent,
 		Help: commands.Help{
 			Summary: "Set reminders, useful for WS",
 			DetailedDescription: "Set reminders for events that will occur after a specific duration.\n" +
 				"Available subcommands are: `add`, `upcoming` and `history` (*I'll add functionality to get help on subcommands too soon*)",
+		},
+	}
+}
+
+func EventAddCommand() commands.Command {
+	return commands.Command{
+		CallPhrase:      "add",
+		Aliases:         []string{"in"},
+		Permission:      commands.Members,
+		HelpDescription: "Add a reminder",
+		Handler:         HandleAddEvent,
+		Help: commands.Help{
+			Summary:             "Add a reminder",
+			DetailedDescription: "Add a reminder.",
+			Syntax:              "!event add <duration> <message>",
+			Example:             "!event add 1h5m Write a message here",
 		},
 	}
 }
@@ -72,12 +91,12 @@ func InitEvent(s *discordgo.Session, db *sql.DB) {
 	}
 }
 
-func HandleEvent(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
-	split := strings.Split(m.Content, " ")
+func HandleEvent(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
+	split := strings.Split(msg, " ")
 
 	switch split[1] {
 	case "add":
-		if len(split) < 4 {
+		if len(split) < 2 {
 			msg := discordgo.MessageEmbed{
 				Title:       "Incorrect syntax",
 				Color:       failColor,
@@ -165,8 +184,31 @@ func HandleEvent(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, c
 	}
 }
 
+func HandleAddEvent(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
+	split := strings.Split(msg, " ") // TODO: Won't work, pass trailing message as parameter
+
+	if len(split) < 2 {
+		msg := discordgo.MessageEmbed{
+			Title:       "Incorrect syntax",
+			Color:       failColor,
+			Description: "Too few arguments for add event command, check `!help event`",
+		}
+		_, err := s.ChannelMessageSendEmbed(m.ChannelID, &msg)
+		if err != nil {
+			fmt.Println("Failed to send message:", err)
+		}
+		return
+	}
+
+	err := addEvent(s, m, split, db)
+	if err != nil {
+		fmt.Println("Failed to add event:", err.Error())
+		return
+	}
+}
+
 func addEvent(s *discordgo.Session, m *discordgo.MessageCreate, splitMsg []string, db *sql.DB) error {
-	duration, err := time.ParseDuration(splitMsg[2])
+	duration, err := time.ParseDuration(splitMsg[0])
 	if err != nil {
 		msg := discordgo.MessageEmbed{
 			Title:       "Incorrect syntax",
@@ -178,7 +220,7 @@ func addEvent(s *discordgo.Session, m *discordgo.MessageCreate, splitMsg []strin
 	}
 
 	event := event{
-		description: strings.Join(splitMsg[3:], " "),
+		description: strings.Join(splitMsg[1:], " "),
 		time:        time.Now().Add(duration),
 	}
 
@@ -194,7 +236,7 @@ func addEvent(s *discordgo.Session, m *discordgo.MessageCreate, splitMsg []strin
 	msg := discordgo.MessageEmbed{
 		Title:       "Event added!",
 		Color:       successColor,
-		Description: fmt.Sprintf("In %v: \"%v\"", duration.String(), event.description),
+		Description: fmt.Sprintf("In %v: %q", duration.String(), event.description),
 	}
 	_, err = s.ChannelMessageSendEmbed(m.ChannelID, &msg)
 	if err != nil {

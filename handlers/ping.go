@@ -23,7 +23,7 @@ func PingCommand() commands.Command {
 	}
 }
 
-func HandlePing(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
+func HandlePing(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
 	_, err := s.ChannelMessageSend(m.ChannelID, "Pong! v2")
 	if err != nil {
 		fmt.Println("Failed to send message:", err)

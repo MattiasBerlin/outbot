@@ -12,11 +12,42 @@ import (
 const (
 	successColor = 0x00ff00
 	failColor    = 0xff0000
+
+	defaultPreferredRole = "No preference"
 )
+
+type wsRole string
+
+const (
+	defaultRole wsRole = "No preference"
+	defense     wsRole = "Defense"
+	offense     wsRole = "Offense"
+	hunter      wsRole = "Hunter"
+)
+
+// wsRoleFromString returns a wsRole from a string.
+// The parameter is case insensitive.
+func wsRoleFromString(text string) wsRole {
+	text = strings.ToLower(text)
+
+	var role wsRole
+	switch text {
+	case "defense", "defensive", "def":
+		role = defense
+	case "offense", "offensive", "off":
+		role = offense
+	case "hunter":
+		role = hunter
+	default:
+		role = defaultRole
+	}
+	return role
+}
 
 type participant struct {
 	name          string
 	participating bool
+	preferredRole wsRole
 }
 
 // OptInCommand for opting in to white stars.
@@ -27,10 +58,11 @@ func OptInCommand() commands.Command {
 		HelpDescription: "Opt in for the next WS",
 		Handler:         HandleOptIn,
 		Help: commands.Help{
-			Summary:             "Opt in for the next WS",
-			DetailedDescription: "Out in for the next White Star match.",
-			Syntax:              "optin",
-			Example:             "optin",
+			Summary: "Opt in for the next WS",
+			DetailedDescription: `Out in for the next White Star match.
+				Accepted preferred roles: def, off, hunter`,
+			Syntax:  "optin [preferred role]",
+			Example: "optin defense",
 		},
 	}
 }
@@ -84,17 +116,17 @@ func ClearParticipantsCommand() commands.Command {
 }
 
 // HandleOptIn handles opt in commands.
-func HandleOptIn(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
-	setParticipation(true, fmt.Sprintf("You've opted in, %v!", m.Author.Username), s, m, db)
+func HandleOptIn(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
+	setParticipation(true, wsRoleFromString(msg), fmt.Sprintf("You've opted in, %v!", m.Author.Username), s, m, db)
 }
 
 // HandleOptOut handles opt out commands.
-func HandleOptOut(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
-	setParticipation(false, fmt.Sprintf("You've opted out, %v!", m.Author.Username), s, m, db)
+func HandleOptOut(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
+	setParticipation(false, wsRoleFromString(msg), fmt.Sprintf("You've opted out, %v!", m.Author.Username), s, m, db)
 }
 
 // HandleClearParticipants handles clearing the participation list.
-func HandleClearParticipants(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
+func HandleClearParticipants(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
 	err := clearParticipantsFromDatabase(db)
 	if err != nil {
 		_, err = s.ChannelMessageSend(m.ChannelID, "Failed to clear participants")
@@ -105,11 +137,11 @@ func HandleClearParticipants(s *discordgo.Session, m *discordgo.MessageCreate, d
 		return
 	}
 
-	msg := discordgo.MessageEmbed{
+	response := discordgo.MessageEmbed{
 		Color:       successColor,
 		Description: "Participation list cleared!",
 	}
-	_, err = s.ChannelMessageSendEmbed(m.ChannelID, &msg)
+	_, err = s.ChannelMessageSendEmbed(m.ChannelID, &response)
 	if err != nil {
 		fmt.Println("Failed to send message:", err.Error())
 		return
@@ -117,28 +149,29 @@ func HandleClearParticipants(s *discordgo.Session, m *discordgo.MessageCreate, d
 }
 
 // HandleListParticipants handles the command for listing participants.
-func HandleListParticipants(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
+func HandleListParticipants(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
 	status, err := optStatus(db)
 	if err != nil {
 		fmt.Println("Failed to get participation status:", err.Error())
 		status = "[Failed to get participation status]"
 	}
 
-	msg := discordgo.MessageEmbed{
+	response := discordgo.MessageEmbed{
 		Color:       successColor,
 		Description: status,
 	}
-	_, err = s.ChannelMessageSendEmbed(m.ChannelID, &msg)
+	_, err = s.ChannelMessageSendEmbed(m.ChannelID, &response)
 	if err != nil {
 		fmt.Println("Failed to send message:", err.Error())
 		return
 	}
 }
 
-func setParticipation(participating bool, updateMessage string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB) {
+func setParticipation(participating bool, preferredRole wsRole, updateMessage string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB) {
 	participant := participant{
 		name:          m.Author.Username,
 		participating: participating,
+		preferredRole: preferredRole,
 	}
 	err := setParticipatingInDatabase(db, participant)
 	if err != nil {
@@ -174,26 +207,40 @@ func optStatus(db *sql.DB) (string, error) {
 		return "", err
 	}
 
+	roleMap := make(map[string][]string)
 	var optIn, optOut []string
 	for _, p := range participants {
 		if p.participating {
 			optIn = append(optIn, p.name)
+
+			roleList, exists := roleMap[string(p.preferredRole)]
+			if !exists {
+				roleList = []string{p.name}
+			} else {
+				roleList = append(roleList, p.name)
+			}
+			roleMap[string(p.preferredRole)] = roleList
 		} else {
 			optOut = append(optOut, p.name)
 		}
 	}
 
-	return fmt.Sprintf("**Participants**:\nOpted in (%v): %v\nOpted out (%v): %v", len(optIn), strings.Join(optIn, ", "), len(optOut), strings.Join(optOut, ", ")), nil
+	var roles string
+	for role, names := range roleMap {
+		roles += fmt.Sprintf("*%v* (%v): %v\n", role, len(names), strings.Join(names, ", "))
+	}
+
+	return fmt.Sprintf("**Participants**:\n**Opted in** (%v):\n%v**Opted out** (%v):\n%v", len(optIn), roles, len(optOut), strings.Join(optOut, ", ")), nil
 }
 
 func setParticipatingInDatabase(db *sql.DB, participant participant) error {
-	statement := "INSERT INTO participants (name, participating) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET participating = $2"
-	_, err := db.Exec(statement, participant.name, participant.participating)
+	statement := "INSERT INTO participants (name, participating, preferred_role) VALUES ($1, $2, $3) ON CONFLICT (name) DO UPDATE SET participating = $2, preferred_role = $3"
+	_, err := db.Exec(statement, participant.name, participant.participating, participant.preferredRole)
 	return err
 }
 
 func getParticipantsFromDatabase(db *sql.DB) ([]participant, error) {
-	rows, err := db.Query("SELECT name, participating FROM participants")
+	rows, err := db.Query("SELECT name, participating, preferred_role FROM participants")
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to do query")
 	}
@@ -202,7 +249,7 @@ func getParticipantsFromDatabase(db *sql.DB) ([]participant, error) {
 	var participants []participant
 	for rows.Next() {
 		var p participant
-		err = rows.Scan(&p.name, &p.participating)
+		err = rows.Scan(&p.name, &p.participating, &p.preferredRole)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to scan row")
 		}

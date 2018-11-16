@@ -1,4 +1,5 @@
 CREATE TABLE IF NOT EXISTS events (
+    id SERIAL PRIMARY KEY,
     description text,
     time timestamp,
     expired boolean NOT NULL DEFAULT false,
@@ -7,5 +8,6 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE TABLE IF NOT EXISTS participants (
     name text PRIMARY KEY,
-    participating boolean NOT NULL
-)
+    participating boolean NOT NULL,
+    preferred_role text NOT NULL DEFAULT 'No preference'
+);
