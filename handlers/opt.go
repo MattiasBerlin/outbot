@@ -23,6 +23,7 @@ const (
 	defense     wsRole = "Defense"
 	offense     wsRole = "Offense"
 	hunter      wsRole = "Hunter"
+	filler      wsRole = "Filler"
 )
 
 // wsRoleFromString returns a wsRole from a string.
@@ -38,6 +39,8 @@ func wsRoleFromString(text string) wsRole {
 		role = offense
 	case "hunter":
 		role = hunter
+	case "filler", "fill":
+		role = filler
 	default:
 		role = defaultRole
 	}
@@ -225,12 +228,23 @@ func optStatus(db *sql.DB) (string, error) {
 		}
 	}
 
-	var roles string
+	var (
+		roles       string
+		fillerNames string
+		fillerCount int
+	)
 	for role, names := range roleMap {
-		roles += fmt.Sprintf("*%v* (%v): %v\n", role, len(names), strings.Join(names, ", "))
+		// Filler is special, not counted in the total opted in
+		if role == string(filler) {
+			fillerCount = len(names)
+			fillerNames = strings.Join(names, ", ")
+		} else {
+			roles += fmt.Sprintf("*%v* (%v): %v\n", role, len(names), strings.Join(names, ", "))
+		}
 	}
+	roles += fmt.Sprintf("**Filler** (%v): %v\n", fillerCount, fillerNames)
 
-	return fmt.Sprintf("**Participants**:\n**Opted in** (%v):\n%v**Opted out** (%v):\n%v", len(optIn), roles, len(optOut), strings.Join(optOut, ", ")), nil
+	return fmt.Sprintf("**Participants**:\n**Opted in** (%v):\n%v**Opted out** (%v):\n%v", len(optIn)-fillerCount, roles, len(optOut), strings.Join(optOut, ", ")), nil
 }
 
 func setParticipatingInDatabase(db *sql.DB, participant participant) error {
