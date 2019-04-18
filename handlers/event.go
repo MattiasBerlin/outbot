@@ -91,7 +91,7 @@ func InitEvent(s *discordgo.Session, db *sql.DB) {
 	}
 }
 
-func HandleEvent(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
+func HandleEvent(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []commands.Command) {
 	split := strings.Split(msg, " ")
 
 	switch split[1] {
@@ -184,7 +184,7 @@ func HandleEvent(msg string, s *discordgo.Session, m *discordgo.MessageCreate, d
 	}
 }
 
-func HandleAddEvent(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
+func HandleAddEvent(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []commands.Command) {
 	split := strings.Split(msg, " ") // TODO: Won't work, pass trailing message as parameter
 
 	if len(split) < 2 {

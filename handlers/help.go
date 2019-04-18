@@ -30,7 +30,7 @@ func HelpCommand() commands.Command {
 }
 
 // HandleHelp handles the help command.
-func HandleHelp(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
+func HandleHelp(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []commands.Command) {
 	splitMsg := strings.Split(msg, " ")
 	if len(splitMsg) == 0 {
 		sendHelpMessage(s, m, cmds)

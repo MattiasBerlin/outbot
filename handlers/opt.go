@@ -14,6 +14,12 @@ const (
 	failColor    = 0xff0000
 
 	defaultPreferredRole = "No preference"
+
+	academyWhiteStarChannel   = "488859067947941909"
+	academyGeneralChannel     = "488401533063659530"
+	academyMessagesChannel    = "488478592297336834"
+	academyOfficersChannel    = "512368438266691594"
+	academySpreadsheetChannel = "489510100705214464"
 )
 
 type wsRole string
@@ -47,10 +53,36 @@ func wsRoleFromString(text string) wsRole {
 	return role
 }
 
+type instance string
+
+const (
+	main    instance = "Main"
+	academy instance = "Academy"
+)
+
+func channelToInstance(channelID string) instance {
+	var instance instance
+
+	switch channelID {
+	case academyWhiteStarChannel,
+		academyGeneralChannel,
+		academyMessagesChannel,
+		academyOfficersChannel,
+		academySpreadsheetChannel:
+		instance = academy
+	default:
+		instance = main
+	}
+
+	return instance
+}
+
 type participant struct {
+	instance
 	name          string
 	participating bool
 	preferredRole wsRole
+	userID        string
 }
 
 // OptInCommand for opting in to white stars.
@@ -62,10 +94,26 @@ func OptInCommand() commands.Command {
 		Handler:         HandleOptIn,
 		Help: commands.Help{
 			Summary: "Opt in for the next WS",
-			DetailedDescription: `Out in for the next White Star match.
+			DetailedDescription: `Opt in for the next White Star match.
 				Accepted preferred roles: def, off, hunter`,
 			Syntax:  "optin [preferred role]",
 			Example: "optin defense",
+		},
+	}
+}
+
+// SetOptInCommand for opting in other members to white stars.
+func SetOptInCommand() commands.Command {
+	return commands.Command{
+		CallPhrase:      "setoptin",
+		Permission:      commands.Officers,
+		HelpDescription: "Opt in other members for the next WS",
+		Handler:         HandleSetOptIn,
+		Help: commands.Help{
+			Summary:             "Opt in other members for the next WS",
+			DetailedDescription: `Opt in other members for the next White Star match.`,
+			Syntax:              "setoptin [role] <members>",
+			Example:             "setoptin def @Maro",
 		},
 	}
 }
@@ -118,19 +166,31 @@ func ClearParticipantsCommand() commands.Command {
 	}
 }
 
+// HandleSetOptIn handles opt in commands for mentioned users.
+func HandleSetOptIn(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []commands.Command) {
+	message := fmt.Sprintf("You've opted in %d members.", len(m.Mentions))
+	for i, user := range m.Mentions {
+		if user != nil {
+			m.Author = user
+			setParticipation(true, wsRoleFromString(strings.Split(msg, " ")[0]), message, i == len(m.Mentions)-1, s, m, db)
+		}
+	}
+}
+
 // HandleOptIn handles opt in commands.
-func HandleOptIn(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
-	setParticipation(true, wsRoleFromString(msg), fmt.Sprintf("You've opted in, %v!", m.Author.Username), s, m, db)
+func HandleOptIn(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []commands.Command) {
+	setParticipation(true, wsRoleFromString(msg), fmt.Sprintf("You've opted in, %v!", m.Author.Username), true, s, m, db)
 }
 
 // HandleOptOut handles opt out commands.
-func HandleOptOut(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
-	setParticipation(false, wsRoleFromString(msg), fmt.Sprintf("You've opted out, %v!", m.Author.Username), s, m, db)
+func HandleOptOut(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []commands.Command) {
+	setParticipation(false, wsRoleFromString(msg), fmt.Sprintf("You've opted out, %v!", m.Author.Username), true, s, m, db)
 }
 
 // HandleClearParticipants handles clearing the participation list.
-func HandleClearParticipants(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
-	err := clearParticipantsFromDatabase(db)
+func HandleClearParticipants(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []commands.Command) {
+	rolesRemoved := removeRolesForParticipants(s, m, db, guildID)
+	err := clearParticipantsFromDatabase(db, channelToInstance(m.ChannelID))
 	if err != nil {
 		_, err = s.ChannelMessageSend(m.ChannelID, "Failed to clear participants")
 		if err != nil {
@@ -142,7 +202,7 @@ func HandleClearParticipants(msg string, s *discordgo.Session, m *discordgo.Mess
 
 	response := discordgo.MessageEmbed{
 		Color:       successColor,
-		Description: "Participation list cleared!",
+		Description: fmt.Sprintf("Participation list cleared!\nCleared roles from %d members.", rolesRemoved),
 	}
 	_, err = s.ChannelMessageSendEmbed(m.ChannelID, &response)
 	if err != nil {
@@ -152,8 +212,12 @@ func HandleClearParticipants(msg string, s *discordgo.Session, m *discordgo.Mess
 }
 
 // HandleListParticipants handles the command for listing participants.
-func HandleListParticipants(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []commands.Command) {
-	status, err := optStatus(db)
+func HandleListParticipants(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []commands.Command) {
+	listParticipants("", channelToInstance(m.ChannelID), s, m, db)
+}
+
+func listParticipants(prefix string, instance instance, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB) {
+	status, err := optStatus(db, instance)
 	if err != nil {
 		fmt.Println("Failed to get participation status:", err.Error())
 		status = "[Failed to get participation status]"
@@ -161,7 +225,7 @@ func HandleListParticipants(msg string, s *discordgo.Session, m *discordgo.Messa
 
 	response := discordgo.MessageEmbed{
 		Color:       successColor,
-		Description: status,
+		Description: prefix + status,
 	}
 	_, err = s.ChannelMessageSendEmbed(m.ChannelID, &response)
 	if err != nil {
@@ -170,42 +234,26 @@ func HandleListParticipants(msg string, s *discordgo.Session, m *discordgo.Messa
 	}
 }
 
-func setParticipation(participating bool, preferredRole wsRole, updateMessage string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB) {
+func setParticipation(participating bool, preferredRole wsRole, updateMessage string, sendMessage bool, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB) {
 	participant := participant{
+		instance:      channelToInstance(m.ChannelID),
 		name:          m.Author.Username,
 		participating: participating,
 		preferredRole: preferredRole,
+		userID:        m.Author.ID,
 	}
 	err := setParticipatingInDatabase(db, participant)
 	if err != nil {
 		fmt.Println("Failed to set participation:", err.Error())
-		_, err = s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Failed to set participation: %v", err))
-		if err != nil {
-			fmt.Println("Failed to send message:", err.Error())
-			return
-		}
 		return
 	}
-
-	status, err := optStatus(db)
-	if err != nil {
-		fmt.Println("Failed to get participation status:", err.Error())
-		status = "[Failed to get participation status]"
-	}
-
-	msg := discordgo.MessageEmbed{
-		Color:       successColor,
-		Description: fmt.Sprintf("%v\n\n%v", updateMessage, status),
-	}
-	_, err = s.ChannelMessageSendEmbed(m.ChannelID, &msg)
-	if err != nil {
-		fmt.Println("Failed to send message:", err.Error())
-		return
+	if sendMessage {
+		listParticipants(fmt.Sprintf("%v\n\n", updateMessage), participant.instance, s, m, db)
 	}
 }
 
-func optStatus(db *sql.DB) (string, error) {
-	participants, err := getParticipantsFromDatabase(db)
+func optStatus(db *sql.DB, instance instance) (string, error) {
+	participants, err := getParticipantsFromDatabase(db, instance)
 	if err != nil {
 		return "", err
 	}
@@ -244,17 +292,26 @@ func optStatus(db *sql.DB) (string, error) {
 	}
 	roles += fmt.Sprintf("**Filler** (%v): %v\n", fillerCount, fillerNames)
 
-	return fmt.Sprintf("**Participants**:\n**Opted in** (%v):\n%v**Opted out** (%v):\n%v", len(optIn)-fillerCount, roles, len(optOut), strings.Join(optOut, ", ")), nil
+	fillerCountText := ""
+	if fillerCount > 0 {
+		fillerCountText = fmt.Sprintf(" + %d filler", fillerCount)
+		if fillerCount > 1 {
+			fillerCountText += "s"
+		}
+	}
+
+	return fmt.Sprintf("**Participants**:\n**Opted in** (%d%s):\n%s**Opted out** (%d):\n%s", len(optIn)-fillerCount, fillerCountText, roles, len(optOut), strings.Join(optOut, ", ")), nil
 }
 
 func setParticipatingInDatabase(db *sql.DB, participant participant) error {
-	statement := "INSERT INTO participants (name, participating, preferred_role) VALUES ($1, $2, $3) ON CONFLICT (name) DO UPDATE SET participating = $2, preferred_role = $3"
-	_, err := db.Exec(statement, participant.name, participant.participating, participant.preferredRole)
+	statement := `INSERT INTO participants (instance, name, participating, preferred_role, user_id) VALUES ($1, $2, $3, $4, $5)
+	ON CONFLICT (instance, name) DO UPDATE SET participating = $3, preferred_role = $4`
+	_, err := db.Exec(statement, participant.instance, participant.name, participant.participating, participant.preferredRole, participant.userID)
 	return err
 }
 
-func getParticipantsFromDatabase(db *sql.DB) ([]participant, error) {
-	rows, err := db.Query("SELECT name, participating, preferred_role FROM participants")
+func getParticipantsFromDatabase(db *sql.DB, instance instance) ([]participant, error) {
+	rows, err := db.Query("SELECT name, participating, preferred_role, user_id FROM participants WHERE instance = $1", instance)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to do query")
 	}
@@ -263,7 +320,7 @@ func getParticipantsFromDatabase(db *sql.DB) ([]participant, error) {
 	var participants []participant
 	for rows.Next() {
 		var p participant
-		err = rows.Scan(&p.name, &p.participating, &p.preferredRole)
+		err = rows.Scan(&p.name, &p.participating, &p.preferredRole, &p.userID)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to scan row")
 		}
@@ -274,7 +331,7 @@ func getParticipantsFromDatabase(db *sql.DB) ([]participant, error) {
 	return participants, nil
 }
 
-func clearParticipantsFromDatabase(db *sql.DB) error {
-	_, err := db.Exec("TRUNCATE TABLE participants")
+func clearParticipantsFromDatabase(db *sql.DB, instance instance) error {
+	_, err := db.Exec("DELETE FROM participants WHERE instance = $1", instance)
 	return err
 }

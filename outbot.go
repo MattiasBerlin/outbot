@@ -2,25 +2,41 @@ package main
 
 import (
 	"database/sql"
+	"flag"
 	"fmt"
 	"github.com/MattiasBerlin/outbot/database"
 	"github.com/bwmarrin/discordgo"
+	"github.com/lestrrat-go/file-rotatelogs"
 	"github.com/pkg/errors"
+	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 )
 
 const (
 	prefix  = "!"
-	guildID = "382256124604448768" // TODO: Remove
+	guildID = "382256124604448768" // TODO: Move to config
 )
+
+var (
+	configPath string
+)
+
+func readFlags() {
+	configPath = *flag.String("config", "", "Path to the directory containing the config file.")
+}
 
 func main() {
 	apiKey := os.Getenv("OB_APIKEY")
 	if apiKey == "" {
 		panic("OB_APIKEY has to be set")
 	}
+
+	readFlags()
+	// readConfig(configDir(configPath))
 
 	session, err := discordgo.New("Bot " + apiKey)
 	if err != nil {
@@ -66,16 +82,33 @@ func connectToDatabase() (*sql.DB, error) {
 	return db, nil
 }
 
-// func onMessageSent(s *discordgo.Session, m *discordgo.MessageCreate) {
-// 	if m.Author.Bot {
-// 		return
-// 	}
+// configDir returns the config directory.
+func configDir(flagDir string) string {
+	if flagDir != "" {
+		return flagDir
+	}
 
-// 	if m.Content == "!test" {
-// 		_, err := s.ChannelMessageSend(m.ChannelID, "It's working!")
-// 		if err != nil {
-// 			fmt.Println("Failed to send message: ", err)
-// 			return
-// 		}
-// 	}
-// }
+	// XDG Base Directory Specification
+	// https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
+	xdgConfig := os.Getenv("XDG_CONFIG_HOME")
+	if xdgConfig != "" {
+		return xdgConfig
+	}
+
+	home := os.Getenv("HOME")
+	return filepath.Join(home, ".config")
+}
+
+func logOutput(dir string) (io.Writer, error) {
+	base := filepath.Join(filepath.Dir(dir), "outbot-log")
+	file, err := rotatelogs.New(base+".%Y%m%d%H%M",
+		rotatelogs.WithLinkName(base),
+		rotatelogs.WithMaxAge(time.Hour*24*30),    // keep 30 days
+		rotatelogs.WithRotationTime(time.Hour*24), // rotate once a day
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return io.MultiWriter(os.Stdout, file), nil
+}

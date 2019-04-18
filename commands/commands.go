@@ -15,6 +15,7 @@ const (
 
 const (
 	MemberRoleID  = "416353375647432706"
+	AcademyRoleID = "488400983836196874"
 	OfficerRoleID = "382256632882659338"
 )
 
@@ -27,7 +28,7 @@ func (p Permission) Authorized(user discordgo.Member) bool {
 		authorized = true
 	case Members:
 		for _, r := range user.Roles {
-			if r == MemberRoleID || r == OfficerRoleID {
+			if r == MemberRoleID || r == AcademyRoleID || r == OfficerRoleID {
 				authorized = true
 				break
 			}
@@ -44,8 +45,8 @@ func (p Permission) Authorized(user discordgo.Member) bool {
 	return authorized
 }
 
-// Handler of message sent events.
-type Handler func(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, cmds []Command)
+// Handler of message sent events. TODO: Jesus past me, this can't be the best way to do it
+type Handler func(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []Command)
 type Init func(s *discordgo.Session, db *sql.DB)
 
 type Command struct {

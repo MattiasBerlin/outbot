@@ -165,7 +165,7 @@ func (r *Router) OnMessageSent(s *discordgo.Session, m *discordgo.MessageCreate)
 	}
 
 	if command.Permission.Authorized(*user) {
-		command.Handler(msg, s, m, r.db, r.getAllCommands()) // TODO: There's no need to get all the commands every call, just do it once and save it
+		command.Handler(msg, s, m, r.db, guildID, r.getAllCommands()) // TODO: There's no need to get all the commands every call, just do it once and save it
 	} else {
 		fmt.Println(m.Author.Username, "tried to use", command.CallPhrase, "without the required authorization")
 	}
@@ -178,7 +178,10 @@ func getCommands() []commands.Command {
 		handlers.EventCommand(),
 		handlers.OptInCommand(),
 		handlers.OptOutCommand(),
+		handlers.SetOptInCommand(),
 		handlers.ListParticipantsCommand(),
 		handlers.ClearParticipantsCommand(),
+		handlers.StatusCommand(),
+		handlers.SetRolesCommand(),
 	}
 }
