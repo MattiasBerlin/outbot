@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS events (
     PRIMARY KEY (description, time)
 );
 
-CREATE TYPE participant_instance AS ENUM ('Main', 'Academy');
+CREATE TYPE participant_instance AS ENUM ('Main A', 'Main B', 'Academy A', 'Academy B');
 
 CREATE TABLE IF NOT EXISTS participants (
     instance participant_instance NOT NULL,

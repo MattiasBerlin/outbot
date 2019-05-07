@@ -13,8 +13,6 @@ const (
 	successColor = 0x00ff00
 	failColor    = 0xff0000
 
-	defaultPreferredRole = "No preference"
-
 	academyWhiteStarChannel   = "488859067947941909"
 	academyGeneralChannel     = "488401533063659530"
 	academyMessagesChannel    = "488478592297336834"
@@ -56,11 +54,18 @@ func wsRoleFromString(text string) wsRole {
 type instance string
 
 const (
-	main    instance = "Main"
-	academy instance = "Academy"
+	mainA    instance = "Main A"
+	mainB    instance = "Main B"
+	academyA instance = "Academy A"
+	academyB instance = "Academy B"
 )
 
-func channelToInstance(channelID string) instance {
+func secondInstance(instanceString string) bool {
+	instanceString = strings.ToLower(instanceString)
+	return instanceString == "b" || instanceString == "2"
+}
+
+func channelToInstance(channelID string, instanceString string) instance {
 	var instance instance
 
 	switch channelID {
@@ -69,9 +74,17 @@ func channelToInstance(channelID string) instance {
 		academyMessagesChannel,
 		academyOfficersChannel,
 		academySpreadsheetChannel:
-		instance = academy
+		if secondInstance(instanceString) {
+			instance = academyB
+		} else {
+			instance = academyA
+		}
 	default:
-		instance = main
+		if secondInstance(instanceString) {
+			instance = mainB
+		} else {
+			instance = mainA
+		}
 	}
 
 	return instance
@@ -95,9 +108,10 @@ func OptInCommand() commands.Command {
 		Help: commands.Help{
 			Summary: "Opt in for the next WS",
 			DetailedDescription: `Opt in for the next White Star match.
+				Instances: A or B
 				Accepted preferred roles: def, off, hunter`,
-			Syntax:  "optin [preferred role]",
-			Example: "optin defense",
+			Syntax:  "optin [instance] [preferred role]",
+			Example: "optin A defense",
 		},
 	}
 }
@@ -112,8 +126,8 @@ func SetOptInCommand() commands.Command {
 		Help: commands.Help{
 			Summary:             "Opt in other members for the next WS",
 			DetailedDescription: `Opt in other members for the next White Star match.`,
-			Syntax:              "setoptin [role] <members>",
-			Example:             "setoptin def @Maro",
+			Syntax:              "setoptin [instance] [role] <members>",
+			Example:             "setoptin A def @Maro",
 		},
 	}
 }
@@ -128,8 +142,8 @@ func OptOutCommand() commands.Command {
 		Help: commands.Help{
 			Summary:             "Opt out of the next WS",
 			DetailedDescription: "Out out of the next White Star match.",
-			Syntax:              "optout",
-			Example:             "optout",
+			Syntax:              "optout [instance]",
+			Example:             "optout B",
 		},
 	}
 }
@@ -160,37 +174,56 @@ func ClearParticipantsCommand() commands.Command {
 		Help: commands.Help{
 			Summary:             "Clear the participation list",
 			DetailedDescription: "Clear the participation list.",
-			Syntax:              "clear",
-			Example:             "clear",
+			Syntax:              "clear [instance]",
+			Example:             "clear A",
 		},
 	}
 }
 
 // HandleSetOptIn handles opt in commands for mentioned users.
 func HandleSetOptIn(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []commands.Command) {
+	splitMsg := strings.Split(msg, " ")
+	var instanceString string
+	role := defaultRole
+	if len(splitMsg) >= 1 {
+		instanceString = splitMsg[0]
+		if len(splitMsg) >= 2 {
+			role = wsRoleFromString(splitMsg[1])
+		}
+	}
+	instance := channelToInstance(m.ChannelID, instanceString)
+
 	message := fmt.Sprintf("You've opted in %d members.", len(m.Mentions))
+
 	for i, user := range m.Mentions {
 		if user != nil {
 			m.Author = user
-			setParticipation(true, wsRoleFromString(strings.Split(msg, " ")[0]), message, i == len(m.Mentions)-1, s, m, db)
+			setParticipation(true, instance, role, message, i == len(m.Mentions)-1, s, m, db)
 		}
 	}
 }
 
 // HandleOptIn handles opt in commands.
 func HandleOptIn(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []commands.Command) {
-	setParticipation(true, wsRoleFromString(msg), fmt.Sprintf("You've opted in, %v!", m.Author.Username), true, s, m, db)
+	splitMsg := strings.Split(msg, " ")
+	instance := splitMsg[0]
+	var wsRole string
+	if len(splitMsg) >= 2 {
+		wsRole = splitMsg[1]
+	}
+	setParticipation(true, channelToInstance(m.ChannelID, instance), wsRoleFromString(wsRole), fmt.Sprintf("You've opted in, %v!", m.Author.Username), true, s, m, db)
 }
 
 // HandleOptOut handles opt out commands.
 func HandleOptOut(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []commands.Command) {
-	setParticipation(false, wsRoleFromString(msg), fmt.Sprintf("You've opted out, %v!", m.Author.Username), true, s, m, db)
+	setParticipation(false, channelToInstance(m.ChannelID, msg), wsRoleFromString(""), fmt.Sprintf("You've opted out, %v!", m.Author.Username), true, s, m, db)
 }
 
 // HandleClearParticipants handles clearing the participation list.
 func HandleClearParticipants(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []commands.Command) {
-	rolesRemoved := removeRolesForParticipants(s, m, db, guildID)
-	err := clearParticipantsFromDatabase(db, channelToInstance(m.ChannelID))
+	instance := channelToInstance(m.ChannelID, msg)
+	rolesRemoved := removeRolesForParticipants(instance, s, db, guildID)
+	err := clearParticipantsFromDatabase(db, instance)
 	if err != nil {
 		_, err = s.ChannelMessageSend(m.ChannelID, "Failed to clear participants")
 		if err != nil {
@@ -213,7 +246,7 @@ func HandleClearParticipants(msg string, s *discordgo.Session, m *discordgo.Mess
 
 // HandleListParticipants handles the command for listing participants.
 func HandleListParticipants(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []commands.Command) {
-	listParticipants("", channelToInstance(m.ChannelID), s, m, db)
+	listParticipants("", channelToInstance(m.ChannelID, msg), s, m, db)
 }
 
 func listParticipants(prefix string, instance instance, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB) {
@@ -234,9 +267,9 @@ func listParticipants(prefix string, instance instance, s *discordgo.Session, m 
 	}
 }
 
-func setParticipation(participating bool, preferredRole wsRole, updateMessage string, sendMessage bool, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB) {
+func setParticipation(participating bool, instance instance, preferredRole wsRole, updateMessage string, sendMessage bool, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB) {
 	participant := participant{
-		instance:      channelToInstance(m.ChannelID),
+		instance:      instance,
 		name:          m.Author.Username,
 		participating: participating,
 		preferredRole: preferredRole,
@@ -300,7 +333,7 @@ func optStatus(db *sql.DB, instance instance) (string, error) {
 		}
 	}
 
-	return fmt.Sprintf("**Participants**:\n**Opted in** (%d%s):\n%s**Opted out** (%d):\n%s", len(optIn)-fillerCount, fillerCountText, roles, len(optOut), strings.Join(optOut, ", ")), nil
+	return fmt.Sprintf("**Participants in %v**:\n**Opted in** (%d%s):\n%s**Opted out** (%d):\n%s", instance, len(optIn)-fillerCount, fillerCountText, roles, len(optOut), strings.Join(optOut, ", ")), nil
 }
 
 func setParticipatingInDatabase(db *sql.DB, participant participant) error {

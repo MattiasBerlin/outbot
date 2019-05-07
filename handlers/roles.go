@@ -23,8 +23,8 @@ func SetRolesCommand() commands.Command {
 		Help: commands.Help{
 			Summary:             "Set roles after a WS match is found",
 			DetailedDescription: "Set roles after a WS match is found.",
-			Syntax:              "setroles",
-			Example:             "setroles",
+			Syntax:              "setroles [instance]",
+			Example:             "setroles B",
 		},
 	}
 }
@@ -46,8 +46,8 @@ func removeRole(s *discordgo.Session, guildID, userID string, role Role) {
 }
 
 // removeRolesForParticipants and return the amount of users affected.
-func removeRolesForParticipants(s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string) int {
-	participants, err := getParticipantsFromDatabase(db, channelToInstance(m.ChannelID))
+func removeRolesForParticipants(instance instance, s *discordgo.Session, db *sql.DB, guildID string) int {
+	participants, err := getParticipantsFromDatabase(db, instance)
 	if err != nil {
 		fmt.Println("Failed to get participants:", err.Error())
 		return 0
@@ -61,7 +61,7 @@ func removeRolesForParticipants(s *discordgo.Session, m *discordgo.MessageCreate
 }
 
 func HandleSetRoles(msg string, s *discordgo.Session, m *discordgo.MessageCreate, db *sql.DB, guildID string, cmds []commands.Command) {
-	participants, err := getParticipantsFromDatabase(db, channelToInstance(m.ChannelID))
+	participants, err := getParticipantsFromDatabase(db, channelToInstance(m.ChannelID, msg))
 	if err != nil {
 		fmt.Println("Failed to get participants:", err.Error())
 		return
